@@ -12,6 +12,9 @@ import buildReleaseInfo from './src/plugins/build-release_info'
 import { VitePWA, VitePWAOptions } from 'vite-plugin-pwa'
 import postcssNesting from 'postcss-nesting'
 
+const MAINSAIL_ROUTES =
+    /^\/(allPrinters|cam|console|heightmap|files|viewer|history|timelapse|config|settings)(\/.*)?$|^\/$/
+
 const PWAConfig: Partial<VitePWAOptions> = {
     registerType: 'autoUpdate',
     includeAssets: ['fonts/**/*.woff2', 'img/**/*.svg', 'img/**/*.png'],
@@ -50,6 +53,7 @@ const PWAConfig: Partial<VitePWAOptions> = {
     },
     workbox: {
         globPatterns: ['**/*.{js,css,html,woff,woff2,png,svg}'],
+        navigateFallbackAllowlist: [MAINSAIL_ROUTES],
         navigateFallbackDenylist: [/^\/(access|api|printer|server|websocket)/, /^\/webcam[2-4]?/],
         runtimeCaching: [
             {
@@ -60,6 +64,37 @@ const PWAConfig: Partial<VitePWAOptions> = {
                     cacheableResponse: {
                         statuses: [0, 200],
                     },
+                },
+            },
+            {
+                urlPattern: new Function(
+                    '{ request, url }',
+                    `return request.mode === 'navigate' && ${MAINSAIL_ROUTES}.test(url.pathname)`
+                ) as any,
+                handler: 'NetworkFirst',
+                options: {
+                    cacheName: 'mainsail-navigation-cache',
+                    cacheableResponse: {
+                        statuses: [200],
+                    },
+                    plugins: [
+                        {
+                            cacheWillUpdate: new Function(
+                                '{ response }',
+                                `if (!response) return null;
+                                if (response.redirected) {
+                                    const url = new URL(response.url);
+                                    if (!${MAINSAIL_ROUTES}.test(url.pathname)) return null;
+                                    return new Response(response.body, {
+                                        status: response.status,
+                                        statusText: response.statusText,
+                                        headers: response.headers
+                                    });
+                                }
+                                return response;`
+                            ) as any,
+                        },
+                    ],
                 },
             },
         ],
